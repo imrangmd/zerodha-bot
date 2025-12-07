@@ -9,38 +9,14 @@ API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 
-# 🌍 Set timezone
-IST = pytz.timezone('Asia/Kolkata')
-now = datetime.now(IST)
-
-# 🚫 Skip if weekend or pre-market
-if now.weekday() >= 5:  # Sat=5, Sun=6
-    print("😴 Weekend — bot sleeping.")
-    exit(0)
-if now.hour < 9 or (now.hour == 9 and now.minute < 14):
-    print("😴 Pre-market (before 9:14 AM) — bot sleeping.")
-    exit(0)
-if now.hour >= 15 and now.minute >= 30:
-    print("🔚 After market hours — bot sleeping.")
-    exit(0)
-
-# 🔄 Auto-renew access token with retry
+# 🔄 Auto-renew access token (no login needed)
 kite = KiteConnect(api_key=API_KEY)
-ACCESS_TOKEN = None
-for attempt in range(3):
-    try:
-        print(f"🔄 Renewing token (attempt {attempt+1}/3)...")
-        session = kite.renew_access_token(REFRESH_TOKEN, API_SECRET)
-        ACCESS_TOKEN = session["access_token"]
-        kite.set_access_token(ACCESS_TOKEN)  # 🔑 CRITICAL FIX
-        print(f"✅ Token renewed. Valid for 24h.")
-        break
-    except Exception as e:
-        print(f"⚠️ Token renewal failed: {e}")
-        if attempt < 2:
-            time.sleep(10)
-else:
-    print("❌ All token renewal attempts failed. Exiting.")
+try:
+    session = kite.renew_access_token(REFRESH_TOKEN, API_SECRET)
+    ACCESS_TOKEN = session["access_token"]
+    print(f"✅ Token renewed. Bot active for 24h.")
+except Exception as e:
+    print(f"❌ Token renewal failed: {e}")
     exit(1)
 
 # 📈 Strategy parameters
@@ -48,7 +24,7 @@ SYMBOL = "NIFTYBEES"
 EXCHANGE = "NSE"
 INSTRUMENT_TOKEN = 256788  # NIFTYBEES (Nippon India ETF)
 INVESTMENT_AMOUNT = 10000  # ₹10,000
-THRESHOLD_PCT = -1.0       # Trigger at -1% drop (your setting)
+THRESHOLD_PCT = -2.0       # Trigger at -2% drop
 BOUGHT = False
 
 # 📡 WebSocket callback
@@ -63,7 +39,7 @@ def on_ticks(ws, ticks):
     # Set CMP on first tick (market open)
     if not hasattr(on_ticks, "cmp"):
         on_ticks.cmp = ltp
-        print(f"📌 CMP set: ₹{ltp:.2f} at {datetime.now(IST).strftime('%H:%M:%S')}")
+        print(f"📌 CMP set: ₹{ltp:.2f} at {datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%H:%M:%S')}")
     
     # Calculate % change
     change_pct = ((ltp - on_ticks.cmp) / on_ticks.cmp) * 100
@@ -104,9 +80,12 @@ kws.on_connect = lambda ws, resp: (
 kws.connect(threaded=True)
 
 # ⏳ Keep bot alive until market close
-print("🕒 Bot running. Monitoring for ≥1% drop...")
+IST = pytz.timezone('Asia/Kolkata')
+print("🕒 Bot running. Monitoring for ≥2% drop...")
+
 while True:
     now = datetime.now(IST)
+    # Exit at 3:30 PM IST
     if now.hour >= 15 and now.minute >= 30:
         print("🔚 Market closed. Bot shutting down.")
         break
